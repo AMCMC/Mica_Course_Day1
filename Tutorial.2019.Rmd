@@ -9,11 +9,10 @@ knitr::opts_chunk$set(echo = T)
 
 ## dada2 data processing
 
-To process the raw sequence data we use dada2 at MiCA. DADA2 infers exact amplified sequence variants (ASV).
-It is possible to get single nucleotide resolution allowing for the highest possible phylogenetic resolution with the current technologies.
+To process the raw sequence data we use dada2 at MiCA. DADA2 infers exact amplified sequence variants (ASV). It is possible to get single nucleotide resolution allowing for the highest possible phylogenetic resolution with the current technologies.
 
-For quality assurance we include possitive and negative control samples in each pooled amplicon libaries.
-The posititve control consists of a MOCK community sample for which the composition is known. In this case the sample was composed of DNA from 55 diffent bacterial strains.
+For quality assurance we include positive and negative control samples in each pooled amplicon libraries
+The positive control consists of a MOCK community sample for which the composition is known. In this case the sample was composed of DNA from 55 different bacterial strains.
 More details about the mock samples can be found at https://f1000research.com/articles/5-1791/v1
 As a show case we will process one of these mock libraries
 
@@ -36,7 +35,7 @@ if(any(!.inst)) {
 sapply(c(.cran_packages, .bioc_packages), require, character.only = TRUE, quietly = T)
 ```
 
-To start the worksop we process the sequence data of one of the postive controls.
+To start the workshop we process the sequence data of one of the positive controls.
 First we download the and asses the quality of the run.
 
 
@@ -50,7 +49,7 @@ plotQualityProfile(c(FQF,FQR))
 
 So we can see the sample has 74333 reads. Furthermore, the quality of the reverse read is much poorer than that of the forward read.
 
-A bit more intuative is to look at the expected error rather than looking at the mean quality distribution. 
+A bit more intuitive is to look at the expected error rather than looking at the mean quality distribution. 
 
 ```{r plot Expected Error}
 x <- cbind(as.matrix(PhredQuality(quality(readFastq(FQF)))),as.matrix(PhredQuality(quality(readFastq(FQR)))))
@@ -76,9 +75,9 @@ sum(table(drfut$map)==1)
 From the reverse read  67474 out of 74333 (90%) are unique!
 This is an issue for amplicon inference because dada2 can only infer ASVs from duplicated reads.
 
-Luckily we can remove some of the poor quality regions of the reads to eleviate this issue somewhat. The length of the V3V4 amplicons are between 400 and 430 bases, which means there is a 100 to basepair overlap between the forward and reverse read. In order to merge the ends we need at least a 20 bp overlap, and thus can trim a total of 50 bases of the ends. We found that trimming 10 bases from the forward read and 40 from the reverse is optimal, and thus we trim the forward and reverse reads to 240 and 210 respectively. 
+Luckily we can remove some of the poor quality regions of the reads to alleviate this issue somewhat. The length of the V3V4 amplicons are between 400 and 430 bases, which means there is a 100 to base pair overlap between the forward and reverse read. In order to merge the ends we need at least a 20 bp overlap, and thus can trim a total of 50 bases of the ends. We found that trimming 10 bases from the forward read and 40 from the reverse is optimal, and thus we trim the forward and reverse reads to 240 and 210 respectively. 
 
-Furthermore DADA2 cannot handle sequences containing ambigious nucleotides and therefore these are filtered out (maxN=0). In contrast to the dada2 tutorial we do not filter on expected errors. We have found that sequence quality differs between amplicons and therefore quality filtering will skew the final composition.
+Furthermore DADA2 cannot handle sequences containing ambiguous nucleotides and therefore these are filtered out (maxN=0). In contrast to the dada2 tutorial we do not filter on expected errors. We have found that sequence quality differs between amplicons and therefore quality filtering will skew the final composition.
 
 ```{r filter and trim}
 # filtered output
@@ -111,13 +110,13 @@ drr
 sum(table(drr$map)==1)
 ```
 
-This reduced the mean expected error rate to 5.5 but more importanty the number of singleton reads dropped to 53124 (71 %)
+This reduced the mean expected error rate to 5.5 but more importantly the number of singleton reads dropped to 53124 (71 %)
 
 ## Calculation of the batch specific error 
 
-The second step in the process is the estimation of the batch specific error rates. Use of the quality score to test the validity of a sequence is what sets dada2 appart from the other platforms.
+The second step in the process is the estimation of the batch specific error rates. Use of the quality score to test the validity of a sequence is what sets dada2 apart from the other platforms.
 
-Error estimation is somewhat computional demanding and therefore precalculate error rates for this particular sequence run is supplies. Otherwise error rates can be obtained using learnErrors (eg errF <- learnErrors(FQFF, multithread=F)). The following plots can be used to asses the error models and should show linear decrease in substition rates over quality scores.
+Error estimation is somewhat computational demanding and therefore precalculated error rates for this particular sequence run is supplies. Otherwise error rates can be obtained using learnErrors (eg errF <- learnErrors(FQFF, multithread=F)). The following plots can be used to asses the error models and should show linear decrease in substitution rates with quality score.
 
 ```{r Error rates}
 errF <- readRDS("./Raw_data/L3_dada2.errF.RDS")
@@ -127,7 +126,7 @@ errR <- readRDS("./Raw_data/L3_dada2.errR.RDS")
 plotErrors(errR, nominalQ=TRUE)
 ```
 
-Points show the quality score dependent substition rates while the red shows the calculated rates.
+Points show the quality score dependent substitution rates while the red shows the calculated rates.
 Results show that overall substitution rates are even higher than what can be expected from the quality score but in general follow the trend. 
 
 ## ASV Inference
@@ -152,7 +151,7 @@ Furthermore dada2 did not find an suitable ASV representative for 8005 (10%) of 
 
 ## ASV pair Merging
 
-To get a single represensative sequence ASV corresponding to each read pair are merged. Only those pairs that can be joined with at least a 20 bases overlap and without any mismatches are accepted.
+To get a single representative sequence ASV corresponding to each read pair are merged. Only those pairs that can be joined with at least a 20 bases overlap and without any mismatches are accepted.
 
 ```{r dada2 asv merging}
 asv.m <- mergePairs(dadaF = asv.f, derepF = drf, dadaR = asv.r, derepR = drr, returnRejects = T)
@@ -160,7 +159,7 @@ head(asv.m)
 saveRDS(asv.m,"./Output/asvm.RDS")
 ```
 
-This table shows the statistics for all possible asv pairs. Forward and reverse read mismatching is a common problem of Illumina sequencing. Therefore significant amount of reads are lost in this process.
+This table shows the statistics for all possible ASV pairs. Forward and reverse read mismatching is a common problem of Illumina sequencing. Therefore significant amount of reads are lost in this process.
 
 ```{r explore merging}
 length(asv.m$accept)
@@ -169,7 +168,7 @@ sum(asv.m$accept)
 sum(asv.m[!asv.m$accept,]$abundance)
 ```
 
-Out of 4586 posible combinations 755 valid merged ASVs are generated. A total of 11726 (15%) reads belong to read pairs which do not properly merge. In total 25 % of the input signal sofar has been dropped in the process. 
+Out of 4586 possible combinations 755 valid merged ASVs are generated. A total of 11726 (15%) reads belong to read pairs which do not properly merge. In total 25 % of the input signal has been dropped in the process. 
 
 ## Chimera removal
 
@@ -201,29 +200,27 @@ This means we lost 43% of the data in processing of the reads. These are quite c
 ## Precision and recall
 
 To determine the accuracy and precision we compare the valid ASVs to to the sequences of the 55 reference strains.
-Unfortenatly the reference sequences for each member have been obtained by sanger sequencing. Due to this no isoform information is available and the refrence seqeunces contain some ambigious basecalls.
-Lets consider all distances smaller than 5 as possible true positive isoforms.
+Unfortunately the reference sequences for each member have been obtained by Sanger sequencing. Due to this no isoform information is available and the reference sequences contain some ambiguous basecalls. Lets consider all distances smaller than 5 as possible true positive isoforms.
 
 ```{r compare ASV to reference}
-# read in the sequences of the mock
+# Read in the sequences of the mock
 mockref <- as.character(readDNAStringSet("./Raw_data/Mock_reference_NoN.fasta"))
 # Apperently the 16S sequences of the members in the mock are not unique!
 names(mockref)[mockref==names(which(table(mockref)!=1))]
-#remove duplicated reference
+# Remove duplicated reference
 mockref <- mockref[!duplicated(mockref)]
 
-
-# get the hamming distance for each ASV and Mock member
-# first build a dataframe
+# Get the hamming distance for each ASV and Mock member
+# First build a dataframe
 hamming.distance.mat <- matrix(nrow = length(asv.valid.seqs), ncol = length(mockref), NA)
 colnames(hamming.distance.mat) <- mockref
 rownames(hamming.distance.mat) <- asv.valid.seqs
 hamming.distance.mat.long <- setNames(melt(hamming.distance.mat), c('asv', 'mock', 'dist'))
 
-# calculate the hamming distance between all ASVs and the mock
+# Calculate the hamming distance between all ASVs and the mock
 hamming.distance.mat.long$dist <- nwhamming(as.character(hamming.distance.mat.long$asv),as.character(hamming.distance.mat.long$mock))
 
-#Get the closest relative for each mock and asv
+# Get the closest relative for each mock and asv
 mockrefdist <- aggregate(dist ~ mock, data = hamming.distance.mat.long, min)
 asvrefdist <- aggregate(dist ~ asv, data = hamming.distance.mat.long, min)
 asvrefdist$name <- factor(paste0("ASV_",1:100), levels=paste0("ASV_",1:100))
@@ -239,6 +236,7 @@ ggplot(asvrefdist, aes(x=name, y=dist)) +
   coord_flip() +
   ggplot2::geom_hline(yintercept = 5, col='red') + 
   labs(y="Minimum hamming distance", title="Distance asv to mock representive (Precision)", x=NULL)
+
 # False positive ASVs
 sum(asvrefdist$dist>=6)
 # False positive ASVs total reads
@@ -246,29 +244,67 @@ sum(seqtab.nochim[asvrefdist$dist>=6])
 ```
 
 This shows that all but one member has a valid representative ASV.
-There are 30 false postive ASVs infere represening 2083 reads (3.7%).
+There are 30 false positive ASVs, representing 2083 reads (3.7%).
 These are usually stealthy chimeras or contaminants
+
+Overall we went from more than 68629 unique sequence to comprehensible set of only 100 representative sequences.
 
 ## Contaminant removal
 
 While most reagents used for library preparation are sterile, trace amounts of contaminant DNA can be found in almost all of them.
-If, for example, DNA yields are a confouding factor in the experimental design, these microbes can easily be identified as possible biomarkers. It is best practice to identify these and remove them from the data. For this we use the package decontam also develop by the the same persons developing dada2.
+If, for example, DNA yields are a confounding factor in the experimental design, these microbes can easily be identified as possible biomarkers. It is best practice to identify these and remove them from the data. For this we use the package decontam also develop by the the same persons developing dada2.
 
-There are two approaches to detecting contaminants. The first is the inclusion of negative controls (NC) and testing the prevalance of specific ASVS on those samples compared to the biological samples. 
+There are two approaches to detecting contaminants. The first is the inclusion of negative controls (NC) and testing the prevalence of specific ASVS on those samples compared to the biological samples. The problem here is you need multiple NC samples to get statistical significance and we rather sequence real samples.
+
+Another more useful approach is to identify them based on frequency. Here a negative association with PCR yields is used to identify contaminants. The following code uses decontam to identify possible contaminants. The relations are visualized to validate the contaminant classifications.
 
 For more information visit: https://benjjneb.github.io/decontam/vignettes/decontam_intro.html
 
-```{decontam prevelance}
+```{r decontam prevelance}
+# readin the phyloseq object
+ps <- readRDS("Raw_data/ps.2018_0008_00.2019-01-11.mod.RDS")
+# transform sample counts to relative abundance
+pst <- transform_sample_counts(ps, function(x) x/sum(x))
+#detect contaminats
+dco <- isContaminant(ps, conc = "Nucl_Acid_AMP_Conc_RS")
 
+#putative contaminats list
+putative.contaminants <- rownames(dco)[dco$contaminant]
+#total number of putative contaminants
+length(putative.contaminants)
+#Taxonomy of possible contaminants
+ps@tax_table[putative.contaminants,6]
 
+# Many of them are spurious hits and are difficult to judge
+# Filter for prevelance more than 10% samples and relative abundance at least 1% in one sample
+prevalance <- colSums(pst@otu_table[,putative.contaminants]!=0)/nsamples(ps)>0.1
+relative_abun <- apply(pst@otu_table[,putative.contaminants],2,max)>0.01
+putative.contaminants <- putative.contaminants[prevalance & relative_abun]
+length(putative.contaminants)
+
+#get a data frame with relative abundance for the putative contaminants 
+df <- cbind(ps@sam_data, pst@otu_table[,rownames(dco)[dco$contaminant]])
+
+#visually check the relation with amplicon yield and mark T/F TRUE/FALSE
+z <- list()
+x=0
+y=length(putative.contaminants)
+
+# This is an interactive part of the script; run it in the console! *(uncomment using CTRL+SHIFT+c)
+# Well call a possible contaminants 
+for(ASV in putative.contaminants){
+  x=x+1
+  tax=NA
+  rank=6;while(is.na(tax) & rank>2){tax <- as.character(ps@tax_table[ASV,rank]); rank=rank-1}
+  p <- ggplot(df, aes_string(x="Nucl_Acid_AMP_Conc_RS", y=ASV, color="i7")) +
+    geom_point() +
+    scale_y_log10() +
+    scale_x_log10() +
+    labs(title=tax) +
+    geom_smooth(aes(group=Seq_ID),method = "lm")
+  suppressWarnings(plot(p))
+  #z[[ASV]] <- readline(paste0("ASV ",x, ":", y, " is contaminant T/F: "))
+}
 ```
 
-The problem here is you need multiple NC samples to get statistical significance and we rather sequence real samples.
-
-Another more usefull approachs is to identify them based on frequency. Here a negative assocation with PCR yields is used to identify contaminants.
-
-```{decontam frequency}
-
-
-```
-
+Most of the abundant ASVs were correctly identified as kit contaminants but some, like Corynebacterium might associate with environments that results in less amplicon yields. You be the judge if these are true contaminants or not. Don't blindly trust the outcome of these bioinformatic tools!
