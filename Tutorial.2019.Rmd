@@ -1,0 +1,274 @@
+---
+title: "MiCA workshop ASV inference"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T)
+```
+
+## dada2 data processing
+
+To process the raw sequence data we use dada2 at MiCA. DADA2 infers exact amplified sequence variants (ASV).
+It is possible to get single nucleotide resolution allowing for the highest possible phylogenetic resolution with the current technologies.
+
+For quality assurance we include possitive and negative control samples in each pooled amplicon libaries.
+The posititve control consists of a MOCK community sample for which the composition is known. In this case the sample was composed of DNA from 55 diffent bacterial strains.
+More details about the mock samples can be found at https://f1000research.com/articles/5-1791/v1
+As a show case we will process one of these mock libraries
+
+First we install and load the necessary packages.
+
+```{r load libraries, cache=F, message=FALSE}
+# load libraries
+.cran_packages <- c("ggplot2", "reshape2")
+.bioc_packages <- c("dada2", "phyloseq","ShortRead","decontam")
+.inst <- .cran_packages %in% installed.packages()
+if(any(!.inst)) {
+   install.packages(.cran_packages[!.inst])
+}
+.inst <- .bioc_packages %in% installed.packages()
+if(any(!.inst)) {
+   source("http://bioconductor.org/biocLite.R")
+   biocLite(.bioc_packages[!.inst], ask = F)
+}
+# Load packages into session, and print package version
+sapply(c(.cran_packages, .bioc_packages), require, character.only = TRUE, quietly = T)
+```
+
+To start the worksop we process the sequence data of one of the postive controls.
+First we download the and asses the quality of the run.
+
+
+```{r plot seqeuence quality}
+FQF <- "./Raw_data/L3_MOCK1.F.fastq.gz"
+FQR <- "./Raw_data/L3_MOCK1.R.fastq.gz"
+
+#visualize the quality of the data
+plotQualityProfile(c(FQF,FQR))
+```
+
+So we can see the sample has 74333 reads. Furthermore, the quality of the reverse read is much poorer than that of the forward read.
+
+A bit more intuative is to look at the expected error rather than looking at the mean quality distribution. 
+
+```{r plot Expected Error}
+x <- cbind(as.matrix(PhredQuality(quality(readFastq(FQF)))),as.matrix(PhredQuality(quality(readFastq(FQR)))))
+#calculate cumalative error rates
+x <- t(apply(10^(-x/10), 1, cumsum))
+# Error rate statistics
+plot(density(x[,500]), xlab="Expected Errors")
+summary(x[,500])
+```
+
+This shows that on average a read has 8 expected errors. This results in many unique sequences. 
+
+```{r read sparsity}
+drrut <- derepFastq(FQF)
+drrut
+sum(table(drrut$map)==1)
+
+drfut <- derepFastq(FQR)
+drfut
+sum(table(drfut$map)==1)
+```
+
+From the reverse read  67474 out of 74333 (90%) are unique!
+This is an issue for amplicon inference because dada2 can only infer ASVs from duplicated reads.
+
+Luckily we can remove some of the poor quality regions of the reads to eleviate this issue somewhat. The length of the V3V4 amplicons are between 400 and 430 bases, which means there is a 100 to basepair overlap between the forward and reverse read. In order to merge the ends we need at least a 20 bp overlap, and thus can trim a total of 50 bases of the ends. We found that trimming 10 bases from the forward read and 40 from the reverse is optimal, and thus we trim the forward and reverse reads to 240 and 210 respectively. 
+
+Furthermore DADA2 cannot handle sequences containing ambigious nucleotides and therefore these are filtered out (maxN=0). In contrast to the dada2 tutorial we do not filter on expected errors. We have found that sequence quality differs between amplicons and therefore quality filtering will skew the final composition.
+
+```{r filter and trim}
+# filtered output
+FQFF <- "./Output/FQFF.gz"
+FQRF <- "./Output/FQRF.gz"
+
+out <- filterAndTrim(FQF, FQFF, FQR, FQRF ,maxN=0, truncQ=0, rm.phix=T, compress=TRUE, multithread=F, truncLen=c(240,210))
+out
+```
+
+There are no problems with filtering and only four sequences were removed.
+
+These sequences were actually Illumina control spike in phiX sequences which are incorrectly assigned to the sample during demultiplexing of the libraries. 
+This issue is known as cross talk. This is not specific for phiX but also between samples. Though in general the rate of cross talk is low, this specifically impacts presence/absence type of analysis. 
+
+```{r plot Expected Error trimmed}
+x <- cbind(as.matrix(PhredQuality(quality(readFastq(FQFF)))),as.matrix(PhredQuality(quality(readFastq(FQRF)))))
+#calculate cumalative error rates
+x <- t(apply(10^(-x/10), 1, cumsum))
+# Error rate statistics
+plot(density(x[,450]), xlab="Expected Errors")
+summary(x[,450])
+
+drf <- derepFastq(FQFF)
+drf
+sum(table(drf$map)==1)
+
+drr <- derepFastq(FQRF)
+drr
+sum(table(drr$map)==1)
+```
+
+This reduced the mean expected error rate to 5.5 but more importanty the number of singleton reads dropped to 53124 (71 %)
+
+## Calculation of the batch specific error 
+
+The second step in the process is the estimation of the batch specific error rates. Use of the quality score to test the validity of a sequence is what sets dada2 appart from the other platforms.
+
+Error estimation is somewhat computional demanding and therefore precalculate error rates for this particular sequence run is supplies. Otherwise error rates can be obtained using learnErrors (eg errF <- learnErrors(FQFF, multithread=F)). The following plots can be used to asses the error models and should show linear decrease in substition rates over quality scores.
+
+```{r Error rates}
+errF <- readRDS("./Raw_data/L3_dada2.errF.RDS")
+plotErrors(errF, nominalQ=TRUE)
+
+errR <- readRDS("./Raw_data/L3_dada2.errR.RDS")
+plotErrors(errR, nominalQ=TRUE)
+```
+
+Points show the quality score dependent substition rates while the red shows the calculated rates.
+Results show that overall substitution rates are even higher than what can be expected from the quality score but in general follow the trend. 
+
+## ASV Inference
+
+The third step in the dada2 workflow is the inference of the ASVs. 
+
+```{r dada2 sequence inference}
+asv.f <- dada(derep = drf, err = errF)
+asv.f
+
+asv.r <- dada(derep = drr, err = errR)
+asv.r
+
+sum(is.na(asv.f$map[drr$map]) | is.na(asv.r$map[drf$map]))
+
+saveRDS(asv.f,"./Output/asvf.RDS")
+saveRDS(asv.r,"./Output/asvr.RDS")
+```
+
+dada2 inferred 216 amplicon sequences from the forward reads and 133 from the reverse reads.
+Furthermore dada2 did not find an suitable ASV representative for 8005 (10%) of the reads.
+
+## ASV pair Merging
+
+To get a single represensative sequence ASV corresponding to each read pair are merged. Only those pairs that can be joined with at least a 20 bases overlap and without any mismatches are accepted.
+
+```{r dada2 asv merging}
+asv.m <- mergePairs(dadaF = asv.f, derepF = drf, dadaR = asv.r, derepR = drr, returnRejects = T)
+head(asv.m)
+saveRDS(asv.m,"./Output/asvm.RDS")
+```
+
+This table shows the statistics for all possible asv pairs. Forward and reverse read mismatching is a common problem of Illumina sequencing. Therefore significant amount of reads are lost in this process.
+
+```{r explore merging}
+length(asv.m$accept)
+sum(asv.m$accept)
+#sum(asv.m[asv.m$accept,]$abundance)
+sum(asv.m[!asv.m$accept,]$abundance)
+```
+
+Out of 4586 posible combinations 755 valid merged ASVs are generated. A total of 11726 (15%) reads belong to read pairs which do not properly merge. In total 25 % of the input signal sofar has been dropped in the process. 
+
+## Chimera removal
+
+During PCR and bridge amplification potential chimeric sequences are generated. These hybrid sequences generate artificial links in the pylogenetic relation of the ASV and cloud analysis. Therefore the ASVs are screened for chimeras. V3V4 amplicons have a conserved region in the middle and are therefore more prone to chimera formation.
+
+```{r dada2 detect bimera}
+seqtab <- makeSequenceTable(asv.m)
+bimeras <- isBimeraDenovo(seqtab)
+sum(bimeras)
+sum(na.omit(asv.m$abundance[asv.m$bimera]))
+
+asv.m$bimera <- bimeras[asv.m$sequence]
+asv.m$accept2 <- asv.m$accept & !asv.m$bimera
+asv.valid.seqs <- asv.m$sequence[asv.m$accept2]
+
+length(asv.valid.seqs)
+sum(seqtab[1,][asv.valid.seqs])
+
+sum(asv.m[asv.m$sequence %in% asv.valid.seqs,]$abundance)
+
+seqtab.nochim <- seqtab[,!bimeras]
+```
+
+A total of 655 ASVs were discarded as possible chimeric sequences, representing 11598 reads (15%)
+
+In the end a total of 100 valid ASVs were inferred representing 44112 reads (57%).
+This means we lost 43% of the data in processing of the reads. These are quite common statistics.
+
+## Precision and recall
+
+To determine the accuracy and precision we compare the valid ASVs to to the sequences of the 55 reference strains.
+Unfortenatly the reference sequences for each member have been obtained by sanger sequencing. Due to this no isoform information is available and the refrence seqeunces contain some ambigious basecalls.
+Lets consider all distances smaller than 5 as possible true positive isoforms.
+
+```{r compare ASV to reference}
+# read in the sequences of the mock
+mockref <- as.character(readDNAStringSet("./Raw_data/Mock_reference_NoN.fasta"))
+# Apperently the 16S sequences of the members in the mock are not unique!
+names(mockref)[mockref==names(which(table(mockref)!=1))]
+#remove duplicated reference
+mockref <- mockref[!duplicated(mockref)]
+
+
+# get the hamming distance for each ASV and Mock member
+# first build a dataframe
+hamming.distance.mat <- matrix(nrow = length(asv.valid.seqs), ncol = length(mockref), NA)
+colnames(hamming.distance.mat) <- mockref
+rownames(hamming.distance.mat) <- asv.valid.seqs
+hamming.distance.mat.long <- setNames(melt(hamming.distance.mat), c('asv', 'mock', 'dist'))
+
+# calculate the hamming distance between all ASVs and the mock
+hamming.distance.mat.long$dist <- nwhamming(as.character(hamming.distance.mat.long$asv),as.character(hamming.distance.mat.long$mock))
+
+#Get the closest relative for each mock and asv
+mockrefdist <- aggregate(dist ~ mock, data = hamming.distance.mat.long, min)
+asvrefdist <- aggregate(dist ~ asv, data = hamming.distance.mat.long, min)
+asvrefdist$name <- factor(paste0("ASV_",1:100), levels=paste0("ASV_",1:100))
+
+mockrefdist$name <- factor(names(mockref)[match(mockref, mockrefdist$mock)], levels=names(mockref))
+ggplot(mockrefdist, aes(x=name, y=dist)) + 
+  geom_bar(stat="identity") +
+  coord_flip() + 
+  labs(y="Minimum hamming distance", title="Distance mock to representive asv (Recall)", x=NULL)
+
+ggplot(asvrefdist, aes(x=name, y=dist)) + 
+  geom_bar(stat="identity") +
+  coord_flip() +
+  ggplot2::geom_hline(yintercept = 5, col='red') + 
+  labs(y="Minimum hamming distance", title="Distance asv to mock representive (Precision)", x=NULL)
+# False positive ASVs
+sum(asvrefdist$dist>=6)
+# False positive ASVs total reads
+sum(seqtab.nochim[asvrefdist$dist>=6])
+```
+
+This shows that all but one member has a valid representative ASV.
+There are 30 false postive ASVs infere represening 2083 reads (3.7%).
+These are usually stealthy chimeras or contaminants
+
+## Contaminant removal
+
+While most reagents used for library preparation are sterile, trace amounts of contaminant DNA can be found in almost all of them.
+If, for example, DNA yields are a confouding factor in the experimental design, these microbes can easily be identified as possible biomarkers. It is best practice to identify these and remove them from the data. For this we use the package decontam also develop by the the same persons developing dada2.
+
+There are two approaches to detecting contaminants. The first is the inclusion of negative controls (NC) and testing the prevalance of specific ASVS on those samples compared to the biological samples. 
+
+For more information visit: https://benjjneb.github.io/decontam/vignettes/decontam_intro.html
+
+```{decontam prevelance}
+
+
+```
+
+The problem here is you need multiple NC samples to get statistical significance and we rather sequence real samples.
+
+Another more usefull approachs is to identify them based on frequency. Here a negative assocation with PCR yields is used to identify contaminants.
+
+```{decontam frequency}
+
+
+```
+
