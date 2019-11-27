@@ -1,0 +1,136 @@
+---
+title: "Diversity"
+author: "Mark Davids"
+output: html_document
+---
+  
+## Example for linear mixed models for alpha diversity 
+  
+Here we show a few examples for alpha diveristy analysis on "repeated" measures design.
+In short, this dataset is from a study in which patients with IBS (hypersensitive) were randomized to either a placebo or probiotic mixture treatment. Samples were taken at baseline and after intervention period of x. Patients were reclassified hypersensitive (non-reponders) or normosensitive (responders) after treatment. The study was negative in respect to effects from the probiotics on IBS. 
+
+## Load packages
+
+```{r}
+library(phyloseq)
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(picante)
+library(ggbeeswarm)
+library(reshape2)
+```
+
+## Load and rarefy dataset
+
+```{r}
+ps <- readRDS("phyobjects/ps.2018_15_IBS_Renee.IDTAXA.2018-10-22.clean.mod.RDS")
+ps.rare <- rarefy_even_depth(ps, sample.size = 35000, rngseed = 211202, replace = F)
+ps
+```
+
+The dataset has 32 samples whith 1208 taxa. It also has a phylogentic tree required to calculate the phylogenetic distance.
+
+## Design
+
+Lets have a look at the study design. There are 4 main variables we need.
+Treatment, which tels us which arm the subject was assigned to.
+Time_Point, obviously. 
+And Effect, which tels us whether the patient responded to treatment.
+Subject_ID2, which is the label for the subject.
+
+```{r}
+# table(ps@sam_data$Effect)
+# 
+# table(ps@sam_data$Treatment)
+# 
+# table(ps@sam_data$Time_Point)
+
+table(ps@sam_data$Subject_ID2)
+
+table(ps@sam_data$Treatment, ps@sam_data$Effect, ps@sam_data$Time_Point)
+```
+
+All patients have two enries, so there are no missing samples.
+We have 9 subjects in the placebo group of which 5 respond to treatment.
+There are 7 subjects in the probiotics group of which only 2 respond.
+
+## Prepare plotting data.frame
+
+Lets visualize the data first. For this we will use ggplot2. 
+It requires a long data frame as input.
+Calculate the alpha diversity metrics and build the dataframe. 
+
+```{r}
+#calculate Observed and Shannon and combine with sample data
+df.ad <- cbind(estimate_richness(ps.rare, measures = c("Observed","Shannon"))
+               ,ps.rare@sam_data[,c("Subject_ID2","Time_Point","Effect","Treatment")])
+
+#calculate Faiths Phylogenetic Distance
+df.ad$FPD <- picante::pd(samp = as.matrix(unclass(otu_table(ps.rare))), tree = phy_tree(ps.rare), include.root = F)[gsub("X","",rownames(df.ad)),"PD"]
+
+#convert to long format for plotting
+df.ad.long <- reshape2::melt(df.ad)
+df.ad.long <- df.ad.long[df.ad.long$Time_Point!="D",]
+df.ad.long$Time_Point <- as.numeric(df.ad.long$Time_Point)
+```
+
+## plot the alpha diversity
+
+We use ggplot to visualize the data. Ive added the commented lines which that wrote for to pretify the plot. You can uncomment them to see the "improvements"
+
+```{r}
+p.adiv <- ggplot(df.ad.long, aes(x=Time_Point, y=value, group=Subject_ID2, color=Treatment, shape=Effect)) + 
+  #theme_bw() + #black and white theme
+  geom_point() + 
+  #geom_jitter() + #spread points so they dont overlap too much
+  #ggbeeswarm::geom_beeswarm(size=4, cex = 2) + #beeswarm dot plots ; nice alternative to geom_jitter
+  facet_wrap(~variable, scale="free_y", labeller = as_labeller(c(
+    `Observed` = "Observed",
+    `Shannon` = "Shannon",
+    `FPD` = "Phylogenetic Diversity"))) + #facet the plots to the individual alpha diverisity metrics
+  #geom_smooth(method = lm, aes(group=Treatment, fill=Treatment), alpha = 0.25) + # add regresion for treatment
+  #geom_smooth(method = lm, aes(group=Effect, fill=Effect), alpha = 0.25) + # add regresion for response
+  #scale_colour_viridis_d(option = "B", begin = 0.25, end = 0.75) + #pretty colors for the color blind
+  #scale_fill_viridis_d(option = "B", begin = 0.25, end = 0.75, alpha = 1) + #pretty colors for the color blind
+  #labs(x="Time Point",y="")  + # add labels and titles
+  geom_line(alpha=0.3) + 
+  #theme(axis.text.x = element_text(angle = 90, hjust = 1)) + #rotae x-axis text
+  NULL;plot(p.adiv)
+```
+
+## test significance of effects using mixed models
+
+First lets test the microbiomes richness (aka, observed species)
+In the model we want to test the effect of time, treatment and response.
+We want to correct for the individual effects. 
+
+```{r}
+fit <- lmer(FPD~Time_Point*Treatment*Effect + (1 | Subject_ID2),df.ad)
+anova(fit)
+```
+
+This shows that "Effect" time independant effect on the number of observed species.
+This possibly is due to the top richessed samples are from nonresponders.
+Since this time independant, it tells us that subjects which high observed species tend to not respond to the treatment (irrespective of treatment being placebo or probiotics), but also that they are different at baseline.
+
+Now lets test the diversity (Shannon)
+
+```{r}
+fit <- lmer(Shannon~Time_Point*Treatment*Effect + (1 | Subject_ID2),df.ad)
+fit
+anova(fit)
+```
+
+This shows us there is a significant interaction between Time_Point and Treatment.
+Looking at the plot it tells us that Shannon diversity increases in the probiotics group while it decreases in the placebo group.
+
+Now have a look at the genetic richness (Faiths phylogenetic distance)
+
+```{r}
+fit <- lmer(Observed~Time_Point*Treatment*Effect + (1 | Subject_ID2),df.ad)
+anova(fit)
+```
+
+This shows us that both treatment and resonse significantly contribute to genetic richness.
+What does this mean?
